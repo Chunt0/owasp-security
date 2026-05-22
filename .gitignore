@@ -1,0 +1,3 @@
+findings/
+.claude/findings/
+*.json.bak
