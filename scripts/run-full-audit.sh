@@ -1,32 +1,39 @@
 #!/usr/bin/env bash
 # run-full-audit.sh
 # Orchestrates all security scripts and merges output into a single findings report.
-# Claude reads this report instead of regenerating findings from scratch.
+# Each run produces a timestamped file so audit history is preserved.
+# A `latest` symlink always points to the most recent run.
 #
 # Usage:
-#   ./run-full-audit.sh [target_dir] [--url https://yourapp.com] [--output report.json]
+#   ./run-full-audit.sh [target_dir] [--url https://yourapp.com] [--dir .claude/findings]
 #
-# Example:
-#   ./run-full-audit.sh ./src --url https://myapp.com --output .claude/findings/full-audit.json
+# Output:
+#   .claude/findings/audit-YYYYMMDD-HHMMSS.json   ← timestamped report
+#   .claude/findings/latest.json                   ← symlink to most recent
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET="${1:-.}"
 URL=""
-OUTPUT_FILE=".claude/findings/full-audit.json"
+FINDINGS_DIR=".claude/findings"
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+DATESTAMP=$(date -u +"%Y%m%d-%H%M%S")
 
 shift || true
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --url)    URL="$2";         shift 2 ;;
-    --output) OUTPUT_FILE="$2"; shift 2 ;;
+    --url) URL="$2";          shift 2 ;;
+    --dir) FINDINGS_DIR="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
 
-mkdir -p "$(dirname "$OUTPUT_FILE")"
+# Timestamped output file — never overwritten
+OUTPUT_FILE="${FINDINGS_DIR}/audit-${DATESTAMP}.json"
+LATEST_LINK="${FINDINGS_DIR}/latest.json"
+
+mkdir -p "$FINDINGS_DIR"
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -80,6 +87,7 @@ cat > "$OUTPUT_FILE" <<EOF
   "schema_version": "1.0",
   "report_type": "full-audit",
   "timestamp": "${TIMESTAMP}",
+  "run_id": "audit-${DATESTAMP}",
   "target": "${TARGET}",
   "url": "${URL:-null}",
   "summary": {
@@ -88,7 +96,7 @@ cat > "$OUTPUT_FILE" <<EOF
     "secrets_findings": ${SECRETS_COUNT},
     "header_findings": ${HEADERS_COUNT}
   },
-  "instructions_for_claude": "This report contains deterministic, verifiable findings from static analysis tools. When interpreting these results: (1) Do NOT re-scan or regenerate findings that are already present here. (2) Focus your analysis on prioritizing, explaining, and suggesting fixes for the findings listed. (3) Reference findings by their 'rule' and 'file' fields. (4) Flag any CRITICAL findings first. (5) If a follow-up audit is needed, re-run run-full-audit.sh rather than inferring new findings.",
+  "instructions_for_claude": "This report contains deterministic, verifiable findings from static analysis tools. When interpreting these results: (1) Do NOT re-scan or regenerate findings already present here. (2) Prioritize, explain, and suggest fixes for listed findings. (3) Reference findings by their 'rule' and 'file' fields. (4) Flag CRITICAL findings first. (5) To compare with a previous run, diff the 'findings' arrays by 'rule'+'file'+'line'. (6) Re-run run-full-audit.sh for a fresh scan rather than inferring new findings.",
   "static_analysis": ${STATIC_JSON},
   "secrets_scan": ${SECRETS_JSON},
   "dependency_audit": ${DEPS_JSON},
@@ -96,7 +104,16 @@ cat > "$OUTPUT_FILE" <<EOF
 }
 EOF
 
-# ─── Summary output ───────────────────────────────────────────────────────────
+# ─── Update latest symlink ────────────────────────────────────────────────────
+# Use absolute path for symlink so it works from any working directory
+ABS_OUTPUT_FILE="$(cd "$(dirname "$OUTPUT_FILE")" && pwd)/$(basename "$OUTPUT_FILE")"
+ABS_LATEST_LINK="$(cd "$(dirname "$LATEST_LINK")" && pwd)/$(basename "$LATEST_LINK")"
+
+ln -sf "$ABS_OUTPUT_FILE" "$ABS_LATEST_LINK"
+
+# ─── Show audit history ───────────────────────────────────────────────────────
+HISTORY_COUNT=$(ls "${FINDINGS_DIR}"/audit-*.json 2>/dev/null | wc -l | tr -d ' ')
+
 echo ""
 echo "══════════════════════════════════════════"
 echo " Audit Complete"
@@ -108,8 +125,10 @@ echo "────────────────────────�
 echo " TOTAL           : $TOTAL"
 echo "══════════════════════════════════════════"
 echo ""
-echo "📄 Full report: $OUTPUT_FILE"
+echo "📄 This run : $OUTPUT_FILE"
+echo "🔗 Latest   : $LATEST_LINK → $(basename "$OUTPUT_FILE")"
+echo "📚 History  : ${HISTORY_COUNT} audit(s) in ${FINDINGS_DIR}/"
 echo ""
-echo "💡 To have Claude analyze these results, run:"
-echo "   claude 'Read $OUTPUT_FILE and give me a prioritized remediation plan'"
+echo "💡 Analyze:  claude 'Read ${LATEST_LINK} and give me a prioritized remediation plan'"
+echo "💡 Compare:  claude 'Compare the two most recent audits in ${FINDINGS_DIR}/ and show what changed'"
 echo ""
