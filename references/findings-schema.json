@@ -1,0 +1,124 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SecurityFindingsReport",
+  "description": "Canonical schema for all security audit findings. Claude must write to this schema when adding findings so reports remain machine-readable and diffable across runs.",
+  "type": "object",
+  "required": ["schema_version", "report_type", "timestamp", "target", "findings"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version. Current: 1.0",
+      "example": "1.0"
+    },
+    "report_type": {
+      "type": "string",
+      "enum": ["static-analysis", "secrets-scan", "headers-audit", "deps-audit", "full-audit", "claude-review"],
+      "description": "The type of audit that produced this report."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp of when the audit ran."
+    },
+    "target": {
+      "type": "string",
+      "description": "Directory path or URL that was audited."
+    },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "total": { "type": "integer" },
+        "critical": { "type": "integer" },
+        "high": { "type": "integer" },
+        "medium": { "type": "integer" },
+        "low": { "type": "integer" }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/Finding" }
+    }
+  },
+  "definitions": {
+    "Finding": {
+      "type": "object",
+      "required": ["id", "severity", "category", "rule", "title", "description", "remediation"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique finding ID. Format: TOOL-YYYYMMDD-NNN (e.g. STATIC-20260101-001). Stable across re-runs for the same issue.",
+          "example": "STATIC-20260101-001"
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"],
+          "description": "CRITICAL=exploitable now with high impact. HIGH=significant risk. MEDIUM=notable but needs context. LOW=best practice gap. INFO=observation."
+        },
+        "category": {
+          "type": "string",
+          "description": "OWASP category. Use format: A01:BrokenAccessControl, API7:SSRF, LLM01:PromptInjection, etc.",
+          "examples": [
+            "A01:BrokenAccessControl",
+            "A04:CryptoFailures",
+            "A05:Injection",
+            "A07:AuthFailures",
+            "API7:SSRF",
+            "LLM01:PromptInjection",
+            "LLM06:ExcessiveAgency",
+            "SecretsExposure",
+            "HeadersMissing"
+          ]
+        },
+        "rule": {
+          "type": "string",
+          "description": "Short machine-readable rule name that triggered this finding.",
+          "example": "sql-string-concat"
+        },
+        "title": {
+          "type": "string",
+          "description": "One-line human-readable title.",
+          "example": "SQL query built via string concatenation"
+        },
+        "description": {
+          "type": "string",
+          "description": "What the issue is and why it's a risk. Be specific — reference the actual code or config."
+        },
+        "file": {
+          "type": "string",
+          "description": "Relative path to the affected file, if applicable."
+        },
+        "line": {
+          "type": "integer",
+          "description": "Line number of the finding, if applicable."
+        },
+        "match": {
+          "type": "string",
+          "description": "The matched code snippet. Redact actual secret values — show location only."
+        },
+        "remediation": {
+          "type": "string",
+          "description": "Concrete fix. Include a code example where possible."
+        },
+        "references": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Links to OWASP, CWE, CVE, or other references.",
+          "examples": [
+            "https://owasp.org/Top10/A05_2021-Injection/",
+            "https://cwe.mitre.org/data/definitions/89.html"
+          ]
+        },
+        "false_positive_notes": {
+          "type": "string",
+          "description": "Conditions under which this finding might be a false positive. Claude should populate this when reviewing."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["open", "confirmed", "false_positive", "accepted_risk", "remediated"],
+          "description": "Lifecycle status. Defaults to 'open'.",
+          "default": "open"
+        }
+      }
+    }
+  }
+}
